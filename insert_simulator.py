@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
 import sys
-import time
-import boto3
 import logging
 import argparse
+from time import sleep
 from faker import Factory
-from random import choice, shuffle
-from multiprocessing import Process, JoinableQueue
+from random import choice
+from multiprocessing import Process, JoinableQueue, cpu_count
+from mysql.connector.pooling import MySQLConnectionPool
 from mysql.connector import connect
 
 logging.basicConfig(
@@ -22,22 +22,21 @@ parser.add_argument("--host", default=None, help="The hostname of the MySQL node
 parser.add_argument("--port", default=None, type=int, help="The port of the MySQL node to connect to")
 parser.add_argument("--user", default="root", help="The user of the MySQL node to connect to")
 parser.add_argument("--password", default="", help="The password of the MySQL node to connect to")
+
 parser.add_argument("--database", default="matterhorn", help="The database to use")
 parser.add_argument("--table", default="mh_user_action", help="The user action table to insert to")
-parser.add_argument("--aws-profile", default="test", help="AWS profile to use for cloudwatch metrics")
+
 parser.add_argument("--num-workers", type=int, default=10, help="The number of insert threads")
 parser.add_argument("--num-inserts", type=int, default=10000, help="The total number of insert to execute")
 parser.add_argument("--interval", type=int, default=30, help="The number of seconds each worker waits between inserts")
 
 options = parser.parse_args()
 
-
 class Worker(Process):
 
-    def __init__(self, work_queue, metric):
+    def __init__(self, work_queue):
         Process.__init__(self)
         self.work_queue = work_queue
-        self.metric = metric
         self.con = connect(
             user=options.user,
             password=options.password,
@@ -76,7 +75,6 @@ class Worker(Process):
                                 + "VALUES (%(id)s, %(inpoint)s, %(outpoint)s, %(mediapackage)s, %(session_id)s, %(created)s, 0, %(type)s, 1)"
 
                 c = self.con.cursor()
-                start = time.time()
                 c.execute(action_insert, {
                     'id': action_id,
                     'inpoint': self.fake.pyint(),
@@ -88,17 +86,8 @@ class Worker(Process):
                 })
                 log.info("%s inserting action %d", self.name, action_id)
                 self.con.commit()
-                end = time.time()
-                self.metric.put_data(
-                    MetricData=[
-                        dict(
-                            MetricName='UserActionInsert-%s' % options.table,
-                            Unit='Seconds',
-                            Value=round(end - start, 3)
-                        )
-                    ])
                 c.close()
-                time.sleep(choice(range(options.interval)) + 1)
+                sleep(options.interval) #choice(range(options.interval)))
             finally:
                 self.work_queue.task_done()
 
@@ -119,21 +108,15 @@ def main():
     next_id = next_id or 1
     con.close()
 
-    boto3.setup_default_session(profile_name=options.aws_profile)
-    cloudwatch = boto3.resource('cloudwatch')
-    metric = cloudwatch.Metric('mh-user-action-bench', 'UserActionInsert-%s' % options.table)
-
     work_queue = JoinableQueue()
 
     log.info("starting %d workers", options.num_workers)
-    workers = [Worker(work_queue, metric) for x in xrange(options.num_workers)]
+    workers = [Worker(work_queue) for x in xrange(options.num_workers)]
     for w in workers:
         w.start()
 
-    action_ids = range(next_id, next_id + options.num_inserts)
-    shuffle(action_ids)
-    for id in action_ids:
-        work_queue.put(id)
+    for i in xrange(next_id, next_id + options.num_inserts):
+        work_queue.put(i)
 
     log.info("poisoning the work queue")
     for i in xrange(options.num_workers):

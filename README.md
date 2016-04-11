@@ -15,7 +15,8 @@ This script creates a number of process threads that issue repeated http request
 to a Matterhorn usertracking endpoint. Currently all reqeusts will be "anonymous" 
 and of type `HEARTBEAT`. Each client thread will get it's own fake user agent
 string and a random episode to "watch" from a list fetched from the MH episode
-search endpoint.
+search endpoint. **Important**: for obvious reasons, this won't work if your
+Matterhorn instance doesn't have any published episodes to watch.
 
 #### Example:
 
@@ -60,8 +61,7 @@ useful in terms of simulating actual usage.
 
     usage: insert_simulator.py [-h] [--host HOST] [--port PORT] [--user USER]
                                [--password PASSWORD] [--database DATABASE]
-                               [--table TABLE] [--aws-profile AWS_PROFILE]
-                               [--num-workers NUM_WORKERS]
+                               [--table TABLE] [--num-workers NUM_WORKERS]
                                [--num-inserts NUM_INSERTS] [--interval INTERVAL]
     
     optional arguments:
@@ -72,11 +72,10 @@ useful in terms of simulating actual usage.
       --password PASSWORD   The password of the MySQL node to connect to
       --database DATABASE   The database to use
       --table TABLE         The user action table to insert to
-      --aws-profile AWS_PROFILE
-                            AWS profile to use for cloudwatch metrics
       --num-workers NUM_WORKERS
                             The number of insert threads
       --num-inserts NUM_INSERTS
                             The total number of insert to execute
       --interval INTERVAL   The number of seconds each worker waits between
                             inserts
+
